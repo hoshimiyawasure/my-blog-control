@@ -15,12 +15,24 @@ export const getDB = () => {
 
     db = new Database(dbPath)
 
-    // 初始化表：如果不存在则创建
+    // 修改建表语句
     db.exec(`
       CREATE TABLE IF NOT EXISTS page_views (
+        path TEXT,
+        user_id TEXT,
+        visited_at INTEGER, -- 存储时间戳
+        PRIMARY KEY (path, user_id) -- 联合主键：同一用户对同一文章只有一条记录
+      )
+    `)
+
+    // 另外需要一个表或字段存总计数，或者实时计算
+    // 为了性能，建议单独存一个总计数表，或者每次 SELECT COUNT(*)
+    // 这里为了简单，我们假设有一个 total_counts 表，或者每次查询时 COUNT(page_views WHERE path=?)
+    // 更好的方式：维护一个 summary 表
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS view_summary (
         path TEXT PRIMARY KEY,
-        count INTEGER DEFAULT 0,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        total_count INTEGER DEFAULT 0
       )
     `)
   }
