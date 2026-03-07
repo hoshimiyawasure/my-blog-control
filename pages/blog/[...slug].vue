@@ -44,78 +44,77 @@ useSeoMeta({
   // ogImage: post.value.image
 });
 
-// 4. 访问量逻辑 (独立于内容加载，失败不影响页面显示)
-const viewCount = ref<number>(0);
-const isViewLoading = ref(true);
-
-const fetchAndIncrementViews = async () => {
-  try {
-    // A. 先获取当前计数 (用于立即展示)
-    const { count } = await $fetch("/api/views", {
-      method: "get",
-      query: { path: cleanPath.value },
-    });
-    viewCount.value = count;
-
-    // B. 尝试增加计数 (防重复逻辑在 composable 或这里内部处理)
-    // 为了代码清晰，建议把之前的 usePageView 逻辑搬过来，这里简化演示
-    const hasVisited = checkLocalVisitRecord(cleanPath.value); // 假设你有这个辅助函数
-
-    if (!hasVisited) {
-      const userId = getOrCreateUserId();
-      await $fetch("/api/views", {
-        method: "post",
-        body: { path: cleanPath.value, userId },
-      })
-        .then(({ count: newCount }) => {
-          viewCount.value = newCount;
-          saveLocalVisitRecord(cleanPath.value);
-        })
-        .catch((err) => {
-          // 统计失败静默处理，不要 throw
-          console.error("View increment failed:", err);
-        });
+// 4. 访问量逻辑 - 服务端获取初始值，客户端处理增量
+const { data: initialViewCount } = await useAsyncData(
+  "view-count-" + cleanPath.value,
+  async () => {
+    try {
+      // 服务端获取初始访问量
+      const { count } = await $fetch("/api/views", {
+        method: "get",
+        query: { path: cleanPath.value },
+      });
+      return count;
+    } catch (err) {
+      console.error("Failed to load initial view count:", err);
+      return 0;
     }
-  } catch (err) {
-    // 获取计数失败也静默处理
-    console.error("Failed to load view count:", err);
-    viewCount.value = 0; // 或者显示 '-'
-  } finally {
-    isViewLoading.value = false;
-  }
-};
+  },
+);
 
-// 辅助函数 (实际项目中请移到 utils 或 composables)
-const STORAGE_KEY_PREFIX = "blog_view_";
-const getOrCreateUserId = () => {
-  if (import.meta.client) {
+const viewCount = ref<number>(initialViewCount.value || 0);
+const isViewLoading = ref(false);
+
+// 客户端处理增量逻辑
+if (import.meta.client) {
+  const incrementViews = async () => {
+    try {
+      const hasVisited = checkLocalVisitRecord(cleanPath.value);
+      if (!hasVisited) {
+        const userId = getOrCreateUserId();
+        await $fetch("/api/views", {
+          method: "post",
+          body: { path: cleanPath.value, userId },
+        })
+          .then(({ count: newCount }) => {
+            viewCount.value = newCount;
+            saveLocalVisitRecord(cleanPath.value);
+          })
+          .catch((err) => {
+            console.error("View increment failed:", err);
+          });
+      }
+    } catch (err) {
+      console.error("Failed to increment views:", err);
+    } finally {
+      isViewLoading.value = false;
+    }
+  };
+
+  // 辅助函数 (实际项目中请移到 utils 或 composables)
+  const STORAGE_KEY_PREFIX = "blog_view_";
+  const getOrCreateUserId = () => {
     let uid = localStorage.getItem("blog_uid");
     if (!uid) {
       uid = crypto.randomUUID();
       localStorage.setItem("blog_uid", uid);
     }
     return uid;
-  }
-  return "server-side";
-};
-const checkLocalVisitRecord = (path: string) => {
-  if (!import.meta.client) return false;
-  const key = `${STORAGE_KEY_PREFIX}${path}`;
-  const last = localStorage.getItem(key);
-  if (!last) return false;
-  return Date.now() - parseInt(last) < 24 * 60 * 60 * 1000;
-};
-const saveLocalVisitRecord = (path: string) => {
-  if (import.meta.client) {
+  };
+  const checkLocalVisitRecord = (path: string) => {
+    const key = `${STORAGE_KEY_PREFIX}${path}`;
+    const last = localStorage.getItem(key);
+    if (!last) return false;
+    return Date.now() - parseInt(last) < 24 * 60 * 60 * 1000;
+  };
+  const saveLocalVisitRecord = (path: string) => {
     localStorage.setItem(`${STORAGE_KEY_PREFIX}${path}`, Date.now().toString());
-  }
-};
+  };
 
-// 仅在客户端执行统计逻辑
-if (import.meta.client) {
+  // 客户端挂载后执行增量逻辑
   onMounted(() => {
     // 稍微延迟，避免阻塞 LCP (最大内容绘制)
-    setTimeout(fetchAndIncrementViews, 500);
+    setTimeout(incrementViews, 500);
   });
 }
 </script>
