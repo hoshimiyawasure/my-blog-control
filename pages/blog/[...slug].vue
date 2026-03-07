@@ -127,5 +127,6 @@ if (import.meta.client) {
     <div class="prose prose-slate max-w-none p-4">
       <ContentRenderer v-if="post" :value="post" />
     </div>
+    <Giscus />
   </div>
 </template>
